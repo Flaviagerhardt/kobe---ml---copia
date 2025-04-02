@@ -1,0 +1,84 @@
+# Here you can define all your datasets by using simple YAML syntax.
+#
+# Documentation for this file format can be found in "The Data Catalog"
+# Link: https://docs.kedro.org/en/stable/data/data_catalog.html
+
+# Dados brutos
+kobe_dev:
+  type: pandas.ParquetDataset
+  filepath: data/01_raw/dataset_kobe_dev.parquet
+
+kobe_prod:
+  type: pandas.ParquetDataset
+  filepath: data/01_raw/dataset_kobe_prod.parquet
+
+# Dados processados
+dados_filtrados:
+  type: pandas.ParquetDataset
+  filepath: data/03_primary/data_filtered.parquet
+
+train_set:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/base_train.parquet
+
+test_set:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/base_test.parquet
+
+# Modelos e resultados
+modelo_regressao:
+  type: pickle.PickleDataset
+  filepath: data/06_models/modelo_regressao.pkl
+  versioned: true
+
+modelo_arvore:
+  type: pickle.PickleDataset
+  filepath: data/06_models/modelo_arvore.pkl
+  versioned: true
+
+modelo_final:
+  type: pickle.PickleDataset
+  filepath: data/06_models/modelo_final.pkl
+  versioned: true
+
+# Métricas e resultados
+metricas_regressao:
+  type: json.JSONDataset
+  filepath: data/08_reporting/metricas_regressao.json
+
+metricas_arvore:
+  type: json.JSONDataset
+  filepath: data/08_reporting/metricas_arvore.json
+
+metricas_final:
+  type: json.JSONDataset
+  filepath: data/08_reporting/metricas_final.json
+
+# Pipeline de deployment
+modelo_carregado:
+  type: MemoryDataset
+
+dados_prod_preparados:
+  type: pandas.ParquetDataset
+  filepath: data/05_model_input/dados_prod_prep.parquet
+
+resultados_predicao:
+  type: pandas.ParquetDataset
+  filepath: data/07_model_output/resultados_predicao.parquet
+
+predicoes:
+  type: pandas.ParquetDataset
+  filepath: data/07_model_output/predicoes.parquet
+
+metricas_producao:
+  type: json.JSONDataset
+  filepath: data/08_reporting/metricas_producao.json
+
+analise_drift:
+  type: json.JSONDataset
+  filepath: data/08_reporting/analise_drift.json
+
+
+predicoes_treino:
+  type: pandas.ParquetDataset
+  filepath: data/07_model_output/predicoes_treino.parquet
