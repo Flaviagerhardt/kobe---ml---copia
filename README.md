@@ -297,3 +297,5 @@ Conjunto de teste adequado: 20% dos dados forneceram um conjunto de teste com ta
 Minimização de viés: A estratificação evitou que períodos específicos do jogo ou tipos de arremessos ficassem sub ou super-representados no conjunto de teste.
 
 Para minimizar ainda mais o viés, consideramos implementar técnicas como validação cruzada em futuras iterações do modelo.
+
+Flavia Gerhardt
