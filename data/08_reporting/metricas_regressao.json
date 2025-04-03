@@ -1,5 +1,5 @@
 {
   "modelo": "regressao_logistica",
-  "log_loss": 0.6784928160667993,
-  "f1_score": 0.5128923766816144
+  "log_loss": 0.6960955463989279,
+  "f1_score": 0.0
 }

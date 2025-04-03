@@ -99,14 +99,78 @@ def aplicar_modelo(modelo: Any, dados: pd.DataFrame) -> pd.DataFrame:
     """
     logging.info("Aplicando modelo nos dados...")
     
-    # Separar features
-    colunas_x = ["lat", "lng", "minutes_remaining", "period", "playoffs", "shot_distance"]
-    X = dados[colunas_x]
-    
-    # Usando scikit-learn predict diretamente
     resultado = dados.copy()
-    resultado["shot_made_flag_prob"] = modelo.predict_proba(X)[:, 1]
-    resultado["shot_made_flag_pred"] = modelo.predict(X)
+    
+    # Verificar se estamos usando um modelo PyCaret
+    try:
+        # Tentar primeiro como modelo PyCaret
+        from pycaret.classification import predict_model
+        
+        # Aplicar modelo utilizando o PyCaret
+        try:
+            # Tente primeiro com raw_score=True 
+            try:
+                predictions = predict_model(modelo, data=dados, raw_score=True)
+                logging.info("PyCaret predict_model chamado com raw_score=True")
+            except:
+                # Se falhar, tente sem o parâmetro raw_score
+                predictions = predict_model(modelo, data=dados)
+                logging.info("PyCaret predict_model chamado sem raw_score")
+            
+            # Extrair previsões - verificar diferentes formatos de coluna para compatibilidade
+            pred_col = None
+            if 'Label' in predictions.columns:
+                pred_col = 'Label'
+                resultado['shot_made_flag_pred'] = predictions['Label']
+            elif 'prediction_label' in predictions.columns:
+                pred_col = 'prediction_label'
+                resultado['shot_made_flag_pred'] = predictions['prediction_label']
+            
+            if not pred_col:
+                raise ValueError("Coluna de previsão não encontrada nos resultados do PyCaret")
+                
+            # Extrair probabilidades - verificar diferentes formatos de coluna
+            prob_col = None
+            if 'Score_1' in predictions.columns:
+                prob_col = 'Score_1'
+                resultado['shot_made_flag_prob'] = predictions['Score_1']
+            elif 'Score' in predictions.columns:
+                prob_col = 'Score'
+                resultado['shot_made_flag_prob'] = predictions['Score']
+            elif 'prediction_score_1' in predictions.columns:
+                prob_col = 'prediction_score_1'
+                resultado['shot_made_flag_prob'] = predictions['prediction_score_1']
+            elif 'prediction_score' in predictions.columns:
+                prob_col = 'prediction_score'
+                resultado['shot_made_flag_prob'] = predictions['prediction_score']
+            
+            if not prob_col:
+                logging.warning("Coluna de probabilidade não encontrada nos resultados do PyCaret. Usando valores binários.")
+                resultado['shot_made_flag_prob'] = resultado['shot_made_flag_pred']
+            
+            logging.info(f"Modelo aplicado usando PyCaret. Colunas encontradas: {list(predictions.columns)}")
+            return resultado
+            
+        except Exception as e:
+            logging.warning(f"Erro ao usar PyCaret para previsão: {e}. Tentando método alternativo...")
+    except ImportError:
+        logging.warning("PyCaret não encontrado. Tentando método alternativo...")
+    
+    # Método alternativo: usar scikit-learn diretamente
+    try:
+        # Separar features
+        colunas_x = ["lat", "lng", "minutes_remaining", "period", "playoffs", "shot_distance"]
+        X = dados[colunas_x]
+        
+        # Usando scikit-learn predict diretamente
+        resultado["shot_made_flag_prob"] = modelo.predict_proba(X)[:, 1]
+        resultado["shot_made_flag_pred"] = modelo.predict(X)
+        
+        logging.info("Modelo aplicado usando scikit-learn")
+        
+    except Exception as e:
+        logging.error(f"Erro ao aplicar modelo: {e}")
+        raise
     
     return resultado
 

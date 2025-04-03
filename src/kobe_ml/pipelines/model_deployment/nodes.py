@@ -102,28 +102,95 @@ def aplicar_modelo(modelo: Any, dados: pd.DataFrame) -> pd.DataFrame:
     # Configurar MLflow
     mlflow.start_run(run_name="AplicacaoModeloProducao", nested=True)
     
-    # Separar features
-    colunas_x = ["lat", "lng", "minutes_remaining", "period", "playoffs", "shot_distance"]
-    X = dados[colunas_x]
-    
-    # Fazer previsões - agora estamos usando scikit-learn diretamente
-    y_pred_proba = modelo.predict_proba(X)[:, 1]
-    y_pred = modelo.predict(X)
-    
-    # Criar dataframe com resultados
     resultados = dados.copy()
-    resultados["shot_made_flag_prob"] = y_pred_proba
-    resultados["shot_made_flag_pred"] = y_pred
+    
+    # Verificar se estamos usando um modelo PyCaret
+    try:
+        # Tentar primeiro como modelo PyCaret
+        from pycaret.classification import predict_model
+        
+        # Aplicar modelo utilizando o PyCaret
+        try:
+            # Tente primeiro com raw_score=True 
+            try:
+                predictions = predict_model(modelo, data=dados, raw_score=True)
+                logging.info("PyCaret predict_model chamado com raw_score=True")
+            except Exception as e1:
+                logging.warning(f"Erro ao usar raw_score=True: {e1}")
+                # Se falhar, tente sem o parâmetro raw_score
+                predictions = predict_model(modelo, data=dados)
+                logging.info("PyCaret predict_model chamado sem raw_score")
+            
+            # Extrair previsões - verificar diferentes formatos de coluna para compatibilidade
+            pred_col = None
+            if 'Label' in predictions.columns:
+                pred_col = 'Label'
+                resultados['shot_made_flag_pred'] = predictions['Label']
+            elif 'prediction_label' in predictions.columns:
+                pred_col = 'prediction_label'
+                resultados['shot_made_flag_pred'] = predictions['prediction_label']
+            
+            if not pred_col:
+                logging.warning(f"Colunas disponíveis: {list(predictions.columns)}")
+                raise ValueError("Coluna de previsão não encontrada nos resultados do PyCaret")
+                
+            # Extrair probabilidades - verificar diferentes formatos de coluna
+            prob_col = None
+            if 'Score_1' in predictions.columns:
+                prob_col = 'Score_1'
+                resultados['shot_made_flag_prob'] = predictions['Score_1']
+            elif 'Score' in predictions.columns:
+                prob_col = 'Score'
+                resultados['shot_made_flag_prob'] = predictions['Score']
+            elif 'prediction_score_1' in predictions.columns:
+                prob_col = 'prediction_score_1'
+                resultados['shot_made_flag_prob'] = predictions['prediction_score_1']
+            elif 'prediction_score' in predictions.columns:
+                prob_col = 'prediction_score'
+                resultados['shot_made_flag_prob'] = predictions['prediction_score']
+            
+            if not prob_col:
+                logging.warning("Coluna de probabilidade não encontrada nos resultados do PyCaret. Usando valores binários.")
+                resultados['shot_made_flag_prob'] = resultados['shot_made_flag_pred']
+            
+            logging.info(f"Modelo aplicado usando PyCaret. Colunas encontradas: {list(predictions.columns)}")
+                
+        except Exception as e:
+            logging.warning(f"Erro ao usar PyCaret para previsão: {e}. Tentando método alternativo...")
+            raise
+            
+    except ImportError as ie:
+        logging.warning(f"PyCaret não encontrado: {ie}. Tentando método alternativo...")
+    
+    # Se o código chegou aqui, significa que o método PyCaret falhou ou não está disponível
+    # Método alternativo: usar scikit-learn diretamente
+    try:
+        # Separar features
+        colunas_x = ["lat", "lng", "minutes_remaining", "period", "playoffs", "shot_distance"]
+        X = dados[colunas_x]
+        
+        # Usando scikit-learn predict diretamente
+        y_pred_proba = modelo.predict_proba(X)[:, 1]
+        y_pred = modelo.predict(X)
+        
+        resultados["shot_made_flag_prob"] = y_pred_proba
+        resultados["shot_made_flag_pred"] = y_pred
+        
+        logging.info("Modelo aplicado usando scikit-learn")
+        
+    except Exception as e:
+        logging.error(f"Erro ao aplicar modelo: {e}")
+        raise
     
     # Registrar distribuição das previsões
-    mlflow.log_metric("media_probabilidades", y_pred_proba.mean())
-    mlflow.log_metric("mediana_probabilidades", np.median(y_pred_proba))
-    mlflow.log_metric("percentual_positivos", y_pred.mean() * 100)
+    mlflow.log_metric("media_probabilidades", resultados["shot_made_flag_prob"].mean())
+    mlflow.log_metric("mediana_probabilidades", np.median(resultados["shot_made_flag_prob"]))
+    mlflow.log_metric("percentual_positivos", resultados["shot_made_flag_pred"].mean() * 100)
     
     # Histograma de probabilidades
     import matplotlib.pyplot as plt
     plt.figure(figsize=(10, 6))
-    plt.hist(y_pred_proba, bins=20, alpha=0.7)
+    plt.hist(resultados["shot_made_flag_prob"], bins=20, alpha=0.7)
     plt.title("Distribuição das Probabilidades Previstas")
     plt.xlabel("Probabilidade de Acerto")
     plt.ylabel("Frequência")
@@ -140,10 +207,10 @@ def aplicar_modelo(modelo: Any, dados: pd.DataFrame) -> pd.DataFrame:
     resultados.to_parquet(temp_path)
     mlflow.log_artifact(temp_path)
     
-    # Finalizar MLflow run
+    # Finalizar o MLflow run
     mlflow.end_run()
     
-    logging.info(f"Modelo aplicado nos dados de produção. Previsões positivas: {y_pred.sum()} ({y_pred.mean() * 100:.2f}%)")
+    logging.info(f"Modelo aplicado nos dados de produção. Previsões positivas: {resultados['shot_made_flag_pred'].sum()} ({resultados['shot_made_flag_pred'].mean() * 100:.2f}%)")
     return resultados
 
 def salvar_predicoes(resultados: pd.DataFrame) -> pd.DataFrame:
