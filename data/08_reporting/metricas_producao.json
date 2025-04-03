@@ -1,0 +1,11 @@
+{
+  "log_loss_producao": 17.233601526553432,
+  "f1_score_producao": 0.3723173378345792,
+  "accuracy_producao": 0.5190317812269032,
+  "true_negatives": 2037,
+  "false_positives": 1593,
+  "false_negatives": 1010,
+  "true_positives": 772,
+  "precision": 0.32642706131078225,
+  "recall": 0.4332210998877666
+}

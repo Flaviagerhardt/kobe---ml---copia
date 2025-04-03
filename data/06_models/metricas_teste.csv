@@ -1,0 +1,2 @@
+Model,Accuracy,AUC,Recall,Prec.,F1,Kappa,MCC
+Quadratic Discriminant Analysis,0.5704,0.5952,0.5152,0.5538,0.5338,0.1364,0.1367

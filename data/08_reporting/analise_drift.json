@@ -1,0 +1,66 @@
+{
+  "lat": {
+    "train_mean": 33.981064727631264,
+    "prod_mean": 33.849584737620106,
+    "train_std": 0.06573936806670123,
+    "prod_std": 0.08403708774935241,
+    "mean_diff_pct": 0.38692133711821813,
+    "ks_statistic": 0.6681501919888448,
+    "p_value": 0.0,
+    "has_drift": true
+  },
+  "lng": {
+    "train_mean": -118.2622466970668,
+    "prod_mean": -118.26393082039912,
+    "train_std": 0.09329947359467966,
+    "prod_std": 0.15756934874382966,
+    "mean_diff_pct": 0.0014240582936317467,
+    "ks_statistic": 0.21822109587309152,
+    "p_value": 3.7499814130041725e-170,
+    "has_drift": true
+  },
+  "minutes_remaining": {
+    "train_mean": 5.076103031796894,
+    "prod_mean": 4.087028824833703,
+    "train_std": 3.425651513086717,
+    "prod_std": 3.4418946590444173,
+    "mean_diff_pct": 19.48491196430794,
+    "ks_statistic": 0.11945514591498349,
+    "p_value": 6.487015707605901e-51,
+    "has_drift": true
+  },
+  "period": {
+    "train_mean": 2.4728247473502587,
+    "prod_mean": 2.7038063562453805,
+    "train_std": 1.1489140234047464,
+    "prod_std": 1.14604316138812,
+    "mean_diff_pct": 9.34079979354092,
+    "ks_statistic": 0.08432839246939539,
+    "p_value": 1.488722870868216e-25,
+    "has_drift": true
+  },
+  "playoffs": {
+    "train_mean": 0.14820064086763618,
+    "prod_mean": 0.1369179600886918,
+    "train_std": 0.35529876289407214,
+    "prod_std": 0.34376071953299603,
+    "mean_diff_pct": 7.613112003355894,
+    "ks_statistic": 0.011282680778944343,
+    "p_value": 0.6754945318572476,
+    "has_drift": false
+  },
+  "shot_distance": {
+    "train_mean": 10.172972639881685,
+    "prod_mean": 25.604028085735404,
+    "train_std": 7.558120319112855,
+    "prod_std": 4.174554961381752,
+    "mean_diff_pct": 151.68678804225297,
+    "ks_statistic": 0.9762757552620902,
+    "p_value": 0.0,
+    "has_drift": true
+  },
+  "features_with_drift": 5,
+  "total_features": 6,
+  "drift_percentage": 83.33333333333334,
+  "significant_drift": true
+}
