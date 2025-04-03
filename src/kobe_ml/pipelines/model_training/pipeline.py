@@ -9,13 +9,13 @@ def create_pipeline(**kwargs) -> Pipeline:
     return pipeline([
         node(
             func=treinar_regressao_logistica,
-            inputs=["train_set", "test_set"],
+            inputs=["train_set", "test_set", "params:model_params"],
             outputs=["modelo_regressao", "metricas_regressao"],
             name="treinar_regressao_logistica"
         ),
         node(
             func=treinar_arvore_decisao,
-            inputs=["train_set", "test_set"],
+            inputs=["train_set", "test_set", "params:model_params"],
             outputs=["modelo_arvore", "metricas_arvore"],
             name="treinar_arvore_decisao"
         ),

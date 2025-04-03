@@ -3,46 +3,92 @@ import numpy as np
 import mlflow
 import logging
 from typing import Dict, Tuple, Any
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import log_loss, f1_score
+import os
+from pycaret.classification import *
 import pickle
+import matplotlib.pyplot as plt
+from sklearn.metrics import log_loss, f1_score
 
-def treinar_regressao_logistica(train_set: pd.DataFrame, test_set: pd.DataFrame) -> Tuple[object, Dict[str, float]]:
+def treinar_regressao_logistica(train_set: pd.DataFrame, test_set: pd.DataFrame, params: Dict[str, Any]) -> Tuple[object, Dict[str, float]]:
     """
-    Treina um modelo de regressão logística e avalia seu desempenho.
+    Treina um modelo de regressão logística usando PyCaret e avalia seu desempenho.
     
     Args:
         train_set: DataFrame com dados de treinamento
         test_set: DataFrame com dados de teste
+        params: Dicionário com parâmetros do modelo
     
     Returns:
         Modelo treinado e dicionário com métricas
     """
     # Configurar MLflow
     mlflow.start_run(run_name="Treinamento_RegressaoLogistica", nested=True)
-
-    # Verificar se é necessário renomear colunas
-    if "lon" in train_set.columns and "lng" not in train_set.columns:
-        train_set = train_set.rename(columns={"lon": "lng"})
-    if "lon" in test_set.columns and "lng" not in test_set.columns:
-        test_set = test_set.rename(columns={"lon": "lng"})
     
-    # Separar features e target
+    # Registrar parâmetros do modelo
+    for key, value in params.items():
+        mlflow.log_param(key, value)
+    
+    # Preparar os dados
     X_train = train_set.drop(columns=["shot_made_flag"])
     y_train = train_set["shot_made_flag"]
     X_test = test_set.drop(columns=["shot_made_flag"])
     y_test = test_set["shot_made_flag"]
     
-    # Treinar modelo
-    modelo = LogisticRegression(random_state=42)
-    modelo.fit(X_train, y_train)
+    # Filtrar parâmetros válidos para o setup do PyCaret
+    setup_params = {
+        'data': train_set,
+        'target': 'shot_made_flag',
+        'session_id': params['session_id'],
+        'normalize': params['normalize']
+    }
     
-    # Fazer previsões
-    y_pred_proba = modelo.predict_proba(X_test)[:, 1]
-    y_pred = modelo.predict(X_test)
+    # Adicionar parâmetros opcionais disponíveis na versão do PyCaret
+    if 'feature_selection' in params:
+        setup_params['feature_selection'] = params['feature_selection']
     
-    # Calcular métricas
+    if 'pca' in params:
+        setup_params['pca'] = params['pca']
+    
+    if 'pca_components' in params and params['pca']:
+        setup_params['pca_components'] = params['pca_components']
+    
+    if 'ignore_low_variance' in params:
+        setup_params['ignore_low_variance'] = params['ignore_low_variance']
+    
+    # Configurar ambiente PyCaret
+    clf = setup(**setup_params, log_experiment=True, silent=True, verbose=False)
+    
+    # Criar e treinar o modelo de regressão logística
+    modelo = create_model('lr', verbose=False)
+    
+    # Avaliar o modelo
+    try:
+        eval_resultados = evaluate_model(modelo, return_dict=True)
+    except:
+        logging.warning("Não foi possível obter resultados detalhados da avaliação do modelo.")
+    
+    # Fazer previsões no conjunto de teste
+    predictions = predict_model(modelo, data=test_set)
+    
+    # Extrair as previsões de probabilidade e classe
+    y_pred = predictions['prediction_label'] if 'prediction_label' in predictions.columns else predictions['Label']
+    
+    # Para probabilidades, ajustar com base nas colunas disponíveis
+    if 'prediction_score' in predictions.columns:
+        y_pred_proba = predictions['prediction_score']
+    elif 'Score_1' in predictions.columns:
+        y_pred_proba = predictions['Score_1']
+    else:
+        # Se não conseguir obter probabilidades diretamente, fazer novo predict com score
+        try:
+            predictions_proba = predict_model(modelo, data=test_set, raw_score=True)
+            y_pred_proba = predictions_proba['Score_1']
+        except:
+            logging.warning("Não foi possível obter probabilidades do modelo.")
+            # Usar valores binários como aproximação
+            y_pred_proba = y_pred
+    
+    # Calcular métricas adicionais
     logloss = log_loss(y_test, y_pred_proba)
     f1 = f1_score(y_test, y_pred)
     
@@ -50,8 +96,28 @@ def treinar_regressao_logistica(train_set: pd.DataFrame, test_set: pd.DataFrame)
     mlflow.log_metric("log_loss", logloss)
     mlflow.log_metric("f1_score", f1)
     
-    # Registrar o modelo
-    mlflow.sklearn.log_model(modelo, "modelo_regressao_logistica")
+    # Salvar modelo e registrar como artefato
+    modelo_finalizado = finalize_model(modelo)
+    
+    # Garantir que o diretório existe
+    os.makedirs("data/06_models", exist_ok=True)
+    
+    modelo_path = "data/06_models/modelo_regressao.pkl"
+    with open(modelo_path, 'wb') as f:
+        pickle.dump(modelo_finalizado, f)
+    
+    mlflow.log_artifact(modelo_path)
+    
+    # Tentar salvar gráficos importantes, com tratamento de erro
+    try:
+        os.makedirs("data/08_reporting", exist_ok=True)
+        
+        # Curva ROC
+        roc_plot = plot_model(modelo, plot='auc', save=True)
+        if os.path.exists('AUC.png'):
+            mlflow.log_artifact('AUC.png')
+    except Exception as e:
+        logging.warning(f"Não foi possível gerar gráficos: {e}")
     
     # Finalizar o MLflow run
     mlflow.end_run()
@@ -63,43 +129,108 @@ def treinar_regressao_logistica(train_set: pd.DataFrame, test_set: pd.DataFrame)
         "f1_score": f1
     }
     
-    return modelo, metricas
+    # Salvar métricas como JSON
+    os.makedirs("data/08_reporting", exist_ok=True)
+    
+    import json
+    with open("data/08_reporting/metricas_regressao.json", 'w') as f:
+        json.dump(metricas, f)
+    
+    return modelo_finalizado, metricas
 
-def treinar_arvore_decisao(train_set: pd.DataFrame, test_set: pd.DataFrame) -> Tuple[object, Dict[str, float]]:
+def treinar_arvore_decisao(train_set: pd.DataFrame, test_set: pd.DataFrame, params: Dict[str, Any]) -> Tuple[object, Dict[str, float]]:
     """
-    Treina um modelo de árvore de decisão e avalia seu desempenho.
+    Treina um modelo de árvore de decisão usando PyCaret e avalia seu desempenho.
     
     Args:
         train_set: DataFrame com dados de treinamento
         test_set: DataFrame com dados de teste
+        params: Dicionário com parâmetros do modelo
     
     Returns:
         Modelo treinado e dicionário com métricas
     """
     # Configurar MLflow
     mlflow.start_run(run_name="Treinamento_ArvoreDecisao", nested=True)
-
-    # Verificar se é necessário renomear colunas
-    if "lon" in train_set.columns and "lng" not in train_set.columns:
-        train_set = train_set.rename(columns={"lon": "lng"})
-    if "lon" in test_set.columns and "lng" not in test_set.columns:
-        test_set = test_set.rename(columns={"lon": "lng"})
     
-    # Separar features e target
+    # Registrar parâmetros do modelo
+    for key, value in params.items():
+        mlflow.log_param(key, value)
+    
+    # Preparar os dados
     X_train = train_set.drop(columns=["shot_made_flag"])
     y_train = train_set["shot_made_flag"]
     X_test = test_set.drop(columns=["shot_made_flag"])
     y_test = test_set["shot_made_flag"]
     
-    # Treinar modelo
-    modelo = DecisionTreeClassifier(random_state=42)
-    modelo.fit(X_train, y_train)
+    # Verificar se já existe uma configuração PyCaret
+    pycaret_setup_exists = False
+    try:
+        # Verificar se o ambiente do PyCaret já está configurado
+        current_exp = get_current_experiment()
+        if current_exp is not None:
+            pycaret_setup_exists = True
+            logging.info("Usando configuração PyCaret existente")
+    except:
+        pycaret_setup_exists = False
     
-    # Fazer previsões
-    y_pred_proba = modelo.predict_proba(X_test)[:, 1]
-    y_pred = modelo.predict(X_test)
+    # Configurar o ambiente PyCaret se necessário
+    if not pycaret_setup_exists:
+        # Filtrar parâmetros válidos para o setup do PyCaret
+        setup_params = {
+            'data': train_set,
+            'target': 'shot_made_flag',
+            'session_id': params['session_id'],
+            'normalize': params['normalize']
+        }
+        
+        # Adicionar parâmetros opcionais disponíveis na versão do PyCaret
+        if 'feature_selection' in params:
+            setup_params['feature_selection'] = params['feature_selection']
+        
+        if 'pca' in params:
+            setup_params['pca'] = params['pca']
+        
+        if 'pca_components' in params and params['pca']:
+            setup_params['pca_components'] = params['pca_components']
+        
+        if 'ignore_low_variance' in params:
+            setup_params['ignore_low_variance'] = params['ignore_low_variance']
+        
+        # Configurar ambiente PyCaret
+        clf = setup(**setup_params, log_experiment=True, silent=True, verbose=False)
     
-    # Calcular métricas
+    # Criar e treinar o modelo de árvore de decisão
+    modelo = create_model('dt', verbose=False)
+    
+    # Avaliar o modelo
+    try:
+        eval_resultados = evaluate_model(modelo, return_dict=True)
+    except:
+        logging.warning("Não foi possível obter resultados detalhados da avaliação do modelo.")
+    
+    # Fazer previsões no conjunto de teste
+    predictions = predict_model(modelo, data=test_set)
+    
+    # Extrair as previsões de probabilidade e classe
+    y_pred = predictions['prediction_label'] if 'prediction_label' in predictions.columns else predictions['Label']
+    
+    # Para probabilidades, ajustar com base nas colunas disponíveis
+    if 'prediction_score' in predictions.columns:
+        y_pred_proba = predictions['prediction_score']
+    elif 'Score_1' in predictions.columns:
+        y_pred_proba = predictions['Score_1']
+    else:
+        # Se não conseguir obter probabilidades diretamente, fazer novo predict com score
+        try:
+            predictions_proba = predict_model(modelo, data=test_set, raw_score=True)
+            y_pred_proba = predictions_proba['Score_1']
+        except:
+            logging.warning("Não foi possível obter probabilidades do modelo.")
+            # Usar valores binários como aproximação
+            y_pred_proba = y_pred
+    
+    # Calcular métricas adicionais
     logloss = log_loss(y_test, y_pred_proba)
     f1 = f1_score(y_test, y_pred)
     
@@ -107,8 +238,28 @@ def treinar_arvore_decisao(train_set: pd.DataFrame, test_set: pd.DataFrame) -> T
     mlflow.log_metric("log_loss", logloss)
     mlflow.log_metric("f1_score", f1)
     
-    # Registrar o modelo
-    mlflow.sklearn.log_model(modelo, "modelo_arvore_decisao")
+    # Salvar modelo e registrar como artefato
+    modelo_finalizado = finalize_model(modelo)
+    
+    # Garantir que o diretório existe
+    os.makedirs("data/06_models", exist_ok=True)
+    
+    modelo_path = "data/06_models/modelo_arvore.pkl"
+    with open(modelo_path, 'wb') as f:
+        pickle.dump(modelo_finalizado, f)
+    
+    mlflow.log_artifact(modelo_path)
+    
+    # Tentar salvar gráficos importantes, com tratamento de erro
+    try:
+        os.makedirs("data/08_reporting", exist_ok=True)
+        
+        # Curva ROC
+        roc_plot = plot_model(modelo, plot='auc', save=True)
+        if os.path.exists('AUC.png'):
+            mlflow.log_artifact('AUC.png')
+    except Exception as e:
+        logging.warning(f"Não foi possível gerar gráficos: {e}")
     
     # Finalizar o MLflow run
     mlflow.end_run()
@@ -120,7 +271,14 @@ def treinar_arvore_decisao(train_set: pd.DataFrame, test_set: pd.DataFrame) -> T
         "f1_score": f1
     }
     
-    return modelo, metricas
+    # Salvar métricas como JSON
+    os.makedirs("data/08_reporting", exist_ok=True)
+    
+    import json
+    with open("data/08_reporting/metricas_arvore.json", 'w') as f:
+        json.dump(metricas, f)
+    
+    return modelo_finalizado, metricas
 
 def selecionar_melhor_modelo(modelo_regressao: object, metricas_regressao: Dict[str, float],
                            modelo_arvore: object, metricas_arvore: Dict[str, float]) -> Tuple[object, Dict[str, float]]:
@@ -139,7 +297,7 @@ def selecionar_melhor_modelo(modelo_regressao: object, metricas_regressao: Dict[
     # Configurar MLflow
     mlflow.start_run(run_name="SelecaoModelo", nested=True)
     
-    # Comparar log loss (menor é melhor)
+    # Comparar métricas
     logging.info(f"Log Loss - Regressão Logística: {metricas_regressao['log_loss']}")
     logging.info(f"Log Loss - Árvore de Decisão: {metricas_arvore['log_loss']}")
     logging.info(f"F1 Score - Regressão Logística: {metricas_regressao['f1_score']}")
@@ -156,8 +314,17 @@ def selecionar_melhor_modelo(modelo_regressao: object, metricas_regressao: Dict[
         logging.info("Árvore de decisão selecionada como melhor modelo!")
         mlflow.log_param("modelo_selecionado", "arvore_decisao")
         
-        # Registrar o modelo final
-        mlflow.sklearn.log_model(modelo_arvore, "modelo_final")
+        # Copiar modelo para arquivo final
+        modelo_final_path = "data/06_models/modelo_final.pkl"
+        with open("data/06_models/modelo_arvore.pkl", 'rb') as f_src:
+            with open(modelo_final_path, 'wb') as f_dst:
+                f_dst.write(f_src.read())
+        
+        mlflow.log_artifact(modelo_final_path)
+        
+        # Salvar métricas do modelo final
+        with open("data/08_reporting/metricas_final.json", 'w') as f:
+            json.dump(metricas_arvore, f)
         
         # Finalizar o MLflow run
         mlflow.end_run()
@@ -167,86 +334,19 @@ def selecionar_melhor_modelo(modelo_regressao: object, metricas_regressao: Dict[
         logging.info("Regressão logística selecionada como melhor modelo!")
         mlflow.log_param("modelo_selecionado", "regressao_logistica")
         
-        # Registrar o modelo final
-        mlflow.sklearn.log_model(modelo_regressao, "modelo_final")
+        # Copiar modelo para arquivo final
+        modelo_final_path = "data/06_models/modelo_final.pkl"
+        with open("data/06_models/modelo_regressao.pkl", 'rb') as f_src:
+            with open(modelo_final_path, 'wb') as f_dst:
+                f_dst.write(f_src.read())
+        
+        mlflow.log_artifact(modelo_final_path)
+        
+        # Salvar métricas do modelo final
+        with open("data/08_reporting/metricas_final.json", 'w') as f:
+            json.dump(metricas_regressao, f)
         
         # Finalizar o MLflow run
         mlflow.end_run()
         
         return modelo_regressao, metricas_regressao
-
-def aplicar_modelo(modelo_final, dados_prod):
-    """
-    Aplica o modelo selecionado aos dados de produção.
-    
-    Args:
-        modelo_final: Modelo treinado e selecionado
-        dados_prod: DataFrame com dados de produção
-    
-    Returns:
-        DataFrame com previsões
-    """
-    import mlflow
-    from sklearn.metrics import log_loss, f1_score
-
-    mlflow.start_run(run_name="PipelineAplicacao", nested=True)
-
-    # Corrigir nome da coluna, se necessário
-    if "lon" in dados_prod.columns and "lng" not in dados_prod.columns:
-        dados_prod = dados_prod.rename(columns={"lon": "lng"})
-
-    # Remover linhas com dados faltantes
-    dados_prod = dados_prod.dropna()
-
-    # Colunas usadas no modelo
-    colunas_usadas = ["lat", "lng", "minutes_remaining", "period", "playoffs", "shot_distance"]
-
-    # Validação das colunas
-    for col in colunas_usadas:
-        if col not in dados_prod.columns:
-            raise ValueError(f"A coluna '{col}' não está presente nos dados de produção.")
-
-    # Previsões
-    X_prod = dados_prod[colunas_usadas]
-    y_pred_proba = modelo_final.predict_proba(X_prod)[:, 1]
-    y_pred = modelo_final.predict(X_prod)
-
-    # Criar DataFrame de resultados
-    resultado = dados_prod.copy()
-    resultado["probabilidade_acerto"] = y_pred_proba
-    resultado["previsao"] = y_pred
-
-    # Verificar se existe a variável alvo para avaliação
-    if "shot_made_flag" in dados_prod.columns:
-        resultado["shot_made_flag"] = dados_prod["shot_made_flag"]
-
-        # Eliminar registros sem rótulo para calcular métricas
-        resultado_avaliacao = resultado.dropna(subset=["shot_made_flag"])
-
-        if not resultado_avaliacao.empty:
-            y_true = resultado_avaliacao["shot_made_flag"]
-            y_pred_proba_filtrado = resultado_avaliacao["probabilidade_acerto"]
-            y_pred_filtrado = resultado_avaliacao["previsao"]
-
-            logloss = log_loss(y_true, y_pred_proba_filtrado)
-            f1 = f1_score(y_true, y_pred_filtrado)
-
-            # Logar métricas no MLflow
-            mlflow.log_metric("log_loss_producao", logloss)
-            mlflow.log_metric("f1_score_producao", f1)
-            
-            logging.info(f"Log Loss em produção: {logloss:.4f}")
-            logging.info(f"F1 Score em produção: {f1:.4f}")
-        else:
-            logging.info("Sem registros válidos para avaliação (todos com NaN em shot_made_flag).")
-    else:
-        logging.info("Coluna 'shot_made_flag' não encontrada. Sem métricas para registrar.")
-
-    # Salvar previsões como artefato
-    temp_file = "data/07_model_output/predicoes_temp.parquet"
-    resultado.to_parquet(temp_file)
-    mlflow.log_artifact(temp_file)
-    
-    mlflow.end_run()
-
-    return resultado

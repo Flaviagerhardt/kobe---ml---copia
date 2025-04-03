@@ -10,6 +10,8 @@ import mlflow
 import os
 from pathlib import Path
 from typing import Dict, Any
+import pickle
+from sklearn.metrics import log_loss, f1_score, accuracy_score, confusion_matrix
 
 # Configurar logging
 logging.basicConfig(
@@ -74,8 +76,6 @@ def carregar_modelo(modelo_path: str) -> Any:
     Returns:
         Modelo carregado
     """
-    import pickle
-    
     logging.info(f"Carregando modelo de {modelo_path}")
     with open(modelo_path, "rb") as f:
         modelo = pickle.load(f)
@@ -99,14 +99,47 @@ def aplicar_modelo(modelo: Any, dados: pd.DataFrame) -> pd.DataFrame:
     colunas_x = ["lat", "lng", "minutes_remaining", "period", "playoffs", "shot_distance"]
     X = dados[colunas_x]
     
-    # Fazer previsões
-    pred_proba = modelo.predict_proba(X)[:, 1]
-    pred_class = modelo.predict(X)
-    
-    # Adicionar previsões ao DataFrame
-    resultado = dados.copy()
-    resultado["shot_made_flag_prob"] = pred_proba
-    resultado["shot_made_flag_pred"] = pred_class
+    # Tentar usar PyCaret predict_model
+    try:
+        from pycaret.classification import predict_model
+        
+        # Fazer previsões usando PyCaret
+        predictions = predict_model(modelo, data=dados)
+        
+        # Extrair as previsões de classe e probabilidade
+        resultado = dados.copy()
+        
+        # Verificar quais colunas estão disponíveis
+        if 'prediction_score' in predictions.columns:
+            resultado["shot_made_flag_prob"] = predictions['prediction_score']
+        elif 'Score_1' in predictions.columns:
+            resultado["shot_made_flag_prob"] = predictions['Score_1']
+        else:
+            # Tentar com raw_score
+            try:
+                predictions_proba = predict_model(modelo, data=dados, raw_score=True)
+                resultado["shot_made_flag_prob"] = predictions_proba['Score_1']
+            except:
+                logging.warning("Não foi possível obter probabilidades. Usando método alternativo.")
+                # Usar scikit-learn diretamente como fallback
+                resultado["shot_made_flag_prob"] = modelo.predict_proba(X)[:, 1]
+        
+        # Obter previsões de classe
+        if 'prediction_label' in predictions.columns:
+            resultado["shot_made_flag_pred"] = predictions['prediction_label']
+        elif 'Label' in predictions.columns:
+            resultado["shot_made_flag_pred"] = predictions['Label']
+        else:
+            # Usar scikit-learn diretamente como fallback
+            resultado["shot_made_flag_pred"] = modelo.predict(X)
+            
+    except Exception as e:
+        logging.warning(f"Erro ao usar PyCaret predict_model: {e}. Usando scikit-learn diretamente.")
+        
+        # Se PyCaret falhar, usar scikit-learn diretamente
+        resultado = dados.copy()
+        resultado["shot_made_flag_prob"] = modelo.predict_proba(X)[:, 1]
+        resultado["shot_made_flag_pred"] = modelo.predict(X)
     
     return resultado
 
@@ -153,6 +186,8 @@ def salvar_resultados(resultados: pd.DataFrame, output_path: str) -> None:
         output_path: Caminho para salvar o arquivo
     """
     logging.info(f"Salvando resultados em {output_path}")
+    # Garantir que o diretório existe
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     resultados.to_parquet(output_path)
 
 def run_pipeline() -> None:
@@ -180,7 +215,7 @@ def run_pipeline() -> None:
                 mlflow.log_metric(nome, valor)
             
             # 6. Salvar resultados
-            output_path = "data/06_models/predicoes.parquet"
+            output_path = "data/07_model_output/predicoes.parquet"
             salvar_resultados(resultados, output_path)
             mlflow.log_artifact(output_path)
             

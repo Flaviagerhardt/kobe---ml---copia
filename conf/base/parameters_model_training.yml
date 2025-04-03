@@ -3,7 +3,6 @@ model_params:
   session_id: 42
   normalize: True
   feature_selection: True
-  feature_selection_threshold: 0.8
   pca: False
   pca_components: 0.95
   ignore_low_variance: True
