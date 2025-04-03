@@ -29,17 +29,17 @@ test_set:
 modelo_regressao:
   type: pickle.PickleDataset
   filepath: data/06_models/modelo_regressao.pkl
-  versioned: true
+  versioned: false
 
 modelo_arvore:
   type: pickle.PickleDataset
   filepath: data/06_models/modelo_arvore.pkl
-  versioned: true
+  versioned: false
 
 modelo_final:
   type: pickle.PickleDataset
   filepath: data/06_models/modelo_final.pkl
-  versioned: true
+  versioned: false
 
 # Métricas e resultados
 metricas_regressao:
@@ -77,7 +77,6 @@ metricas_producao:
 analise_drift:
   type: json.JSONDataset
   filepath: data/08_reporting/analise_drift.json
-
 
 predicoes_treino:
   type: pandas.ParquetDataset

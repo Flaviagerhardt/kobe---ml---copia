@@ -56,6 +56,10 @@ def preparar_dados(df: pd.DataFrame) -> pd.DataFrame:
     df = df.dropna()
     logging.info(f"Dimensões após remover valores faltantes: {df.shape}")
     
+    # Renomear coluna "lon" para "lng" se necessário
+    if "lon" in df.columns and "lng" not in df.columns:
+        df = df.rename(columns={"lon": "lng"})
+    
     # Selecionar colunas
     colunas_usadas = ["lat", "lng", "minutes_remaining", "period", "playoffs", "shot_distance"]
     if "shot_made_flag" in df.columns:
@@ -99,47 +103,10 @@ def aplicar_modelo(modelo: Any, dados: pd.DataFrame) -> pd.DataFrame:
     colunas_x = ["lat", "lng", "minutes_remaining", "period", "playoffs", "shot_distance"]
     X = dados[colunas_x]
     
-    # Tentar usar PyCaret predict_model
-    try:
-        from pycaret.classification import predict_model
-        
-        # Fazer previsões usando PyCaret
-        predictions = predict_model(modelo, data=dados)
-        
-        # Extrair as previsões de classe e probabilidade
-        resultado = dados.copy()
-        
-        # Verificar quais colunas estão disponíveis
-        if 'prediction_score' in predictions.columns:
-            resultado["shot_made_flag_prob"] = predictions['prediction_score']
-        elif 'Score_1' in predictions.columns:
-            resultado["shot_made_flag_prob"] = predictions['Score_1']
-        else:
-            # Tentar com raw_score
-            try:
-                predictions_proba = predict_model(modelo, data=dados, raw_score=True)
-                resultado["shot_made_flag_prob"] = predictions_proba['Score_1']
-            except:
-                logging.warning("Não foi possível obter probabilidades. Usando método alternativo.")
-                # Usar scikit-learn diretamente como fallback
-                resultado["shot_made_flag_prob"] = modelo.predict_proba(X)[:, 1]
-        
-        # Obter previsões de classe
-        if 'prediction_label' in predictions.columns:
-            resultado["shot_made_flag_pred"] = predictions['prediction_label']
-        elif 'Label' in predictions.columns:
-            resultado["shot_made_flag_pred"] = predictions['Label']
-        else:
-            # Usar scikit-learn diretamente como fallback
-            resultado["shot_made_flag_pred"] = modelo.predict(X)
-            
-    except Exception as e:
-        logging.warning(f"Erro ao usar PyCaret predict_model: {e}. Usando scikit-learn diretamente.")
-        
-        # Se PyCaret falhar, usar scikit-learn diretamente
-        resultado = dados.copy()
-        resultado["shot_made_flag_prob"] = modelo.predict_proba(X)[:, 1]
-        resultado["shot_made_flag_pred"] = modelo.predict(X)
+    # Usando scikit-learn predict diretamente
+    resultado = dados.copy()
+    resultado["shot_made_flag_prob"] = modelo.predict_proba(X)[:, 1]
+    resultado["shot_made_flag_pred"] = modelo.predict(X)
     
     return resultado
 

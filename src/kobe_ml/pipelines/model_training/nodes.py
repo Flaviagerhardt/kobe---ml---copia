@@ -4,14 +4,16 @@ import mlflow
 import logging
 from typing import Dict, Tuple, Any
 import os
-from pycaret.classification import *
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import log_loss, f1_score
 import pickle
 import matplotlib.pyplot as plt
-from sklearn.metrics import log_loss, f1_score
+import json  # Adicionando a importação do módulo json
 
 def treinar_regressao_logistica(train_set: pd.DataFrame, test_set: pd.DataFrame, params: Dict[str, Any]) -> Tuple[object, Dict[str, float]]:
     """
-    Treina um modelo de regressão logística usando PyCaret e avalia seu desempenho.
+    Treina um modelo de regressão logística com scikit-learn e avalia seu desempenho.
     
     Args:
         train_set: DataFrame com dados de treinamento
@@ -34,61 +36,15 @@ def treinar_regressao_logistica(train_set: pd.DataFrame, test_set: pd.DataFrame,
     X_test = test_set.drop(columns=["shot_made_flag"])
     y_test = test_set["shot_made_flag"]
     
-    # Filtrar parâmetros válidos para o setup do PyCaret
-    setup_params = {
-        'data': train_set,
-        'target': 'shot_made_flag',
-        'session_id': params['session_id'],
-        'normalize': params['normalize']
-    }
-    
-    # Adicionar parâmetros opcionais disponíveis na versão do PyCaret
-    if 'feature_selection' in params:
-        setup_params['feature_selection'] = params['feature_selection']
-    
-    if 'pca' in params:
-        setup_params['pca'] = params['pca']
-    
-    if 'pca_components' in params and params['pca']:
-        setup_params['pca_components'] = params['pca_components']
-    
-    if 'ignore_low_variance' in params:
-        setup_params['ignore_low_variance'] = params['ignore_low_variance']
-    
-    # Configurar ambiente PyCaret
-    clf = setup(**setup_params, log_experiment=True, silent=True, verbose=False)
-    
-    # Criar e treinar o modelo de regressão logística
-    modelo = create_model('lr', verbose=False)
-    
-    # Avaliar o modelo
-    try:
-        eval_resultados = evaluate_model(modelo, return_dict=True)
-    except:
-        logging.warning("Não foi possível obter resultados detalhados da avaliação do modelo.")
+    # Treinar modelo de regressão logística
+    modelo = LogisticRegression(random_state=params['session_id'], max_iter=1000)
+    modelo.fit(X_train, y_train)
     
     # Fazer previsões no conjunto de teste
-    predictions = predict_model(modelo, data=test_set)
+    y_pred = modelo.predict(X_test)
+    y_pred_proba = modelo.predict_proba(X_test)[:, 1]
     
-    # Extrair as previsões de probabilidade e classe
-    y_pred = predictions['prediction_label'] if 'prediction_label' in predictions.columns else predictions['Label']
-    
-    # Para probabilidades, ajustar com base nas colunas disponíveis
-    if 'prediction_score' in predictions.columns:
-        y_pred_proba = predictions['prediction_score']
-    elif 'Score_1' in predictions.columns:
-        y_pred_proba = predictions['Score_1']
-    else:
-        # Se não conseguir obter probabilidades diretamente, fazer novo predict com score
-        try:
-            predictions_proba = predict_model(modelo, data=test_set, raw_score=True)
-            y_pred_proba = predictions_proba['Score_1']
-        except:
-            logging.warning("Não foi possível obter probabilidades do modelo.")
-            # Usar valores binários como aproximação
-            y_pred_proba = y_pred
-    
-    # Calcular métricas adicionais
+    # Calcular métricas
     logloss = log_loss(y_test, y_pred_proba)
     f1 = f1_score(y_test, y_pred)
     
@@ -97,25 +53,26 @@ def treinar_regressao_logistica(train_set: pd.DataFrame, test_set: pd.DataFrame,
     mlflow.log_metric("f1_score", f1)
     
     # Salvar modelo e registrar como artefato
-    modelo_finalizado = finalize_model(modelo)
-    
-    # Garantir que o diretório existe
     os.makedirs("data/06_models", exist_ok=True)
-    
     modelo_path = "data/06_models/modelo_regressao.pkl"
     with open(modelo_path, 'wb') as f:
-        pickle.dump(modelo_finalizado, f)
+        pickle.dump(modelo, f)
     
     mlflow.log_artifact(modelo_path)
     
-    # Tentar salvar gráficos importantes, com tratamento de erro
+    # Tentar gerar curva ROC
     try:
+        from sklearn.metrics import RocCurveDisplay
+        import matplotlib.pyplot as plt
         os.makedirs("data/08_reporting", exist_ok=True)
         
         # Curva ROC
-        roc_plot = plot_model(modelo, plot='auc', save=True)
-        if os.path.exists('AUC.png'):
-            mlflow.log_artifact('AUC.png')
+        roc_plot = RocCurveDisplay.from_estimator(modelo, X_test, y_test)
+        plt.title('Curva ROC - Regressão Logística')
+        roc_path = "data/08_reporting/roc_lr.png"
+        plt.savefig(roc_path)
+        plt.close()
+        mlflow.log_artifact(roc_path)
     except Exception as e:
         logging.warning(f"Não foi possível gerar gráficos: {e}")
     
@@ -132,15 +89,14 @@ def treinar_regressao_logistica(train_set: pd.DataFrame, test_set: pd.DataFrame,
     # Salvar métricas como JSON
     os.makedirs("data/08_reporting", exist_ok=True)
     
-    import json
     with open("data/08_reporting/metricas_regressao.json", 'w') as f:
         json.dump(metricas, f)
     
-    return modelo_finalizado, metricas
+    return modelo, metricas
 
 def treinar_arvore_decisao(train_set: pd.DataFrame, test_set: pd.DataFrame, params: Dict[str, Any]) -> Tuple[object, Dict[str, float]]:
     """
-    Treina um modelo de árvore de decisão usando PyCaret e avalia seu desempenho.
+    Treina um modelo de árvore de decisão com scikit-learn e avalia seu desempenho.
     
     Args:
         train_set: DataFrame com dados de treinamento
@@ -163,74 +119,15 @@ def treinar_arvore_decisao(train_set: pd.DataFrame, test_set: pd.DataFrame, para
     X_test = test_set.drop(columns=["shot_made_flag"])
     y_test = test_set["shot_made_flag"]
     
-    # Verificar se já existe uma configuração PyCaret
-    pycaret_setup_exists = False
-    try:
-        # Verificar se o ambiente do PyCaret já está configurado
-        current_exp = get_current_experiment()
-        if current_exp is not None:
-            pycaret_setup_exists = True
-            logging.info("Usando configuração PyCaret existente")
-    except:
-        pycaret_setup_exists = False
-    
-    # Configurar o ambiente PyCaret se necessário
-    if not pycaret_setup_exists:
-        # Filtrar parâmetros válidos para o setup do PyCaret
-        setup_params = {
-            'data': train_set,
-            'target': 'shot_made_flag',
-            'session_id': params['session_id'],
-            'normalize': params['normalize']
-        }
-        
-        # Adicionar parâmetros opcionais disponíveis na versão do PyCaret
-        if 'feature_selection' in params:
-            setup_params['feature_selection'] = params['feature_selection']
-        
-        if 'pca' in params:
-            setup_params['pca'] = params['pca']
-        
-        if 'pca_components' in params and params['pca']:
-            setup_params['pca_components'] = params['pca_components']
-        
-        if 'ignore_low_variance' in params:
-            setup_params['ignore_low_variance'] = params['ignore_low_variance']
-        
-        # Configurar ambiente PyCaret
-        clf = setup(**setup_params, log_experiment=True, silent=True, verbose=False)
-    
-    # Criar e treinar o modelo de árvore de decisão
-    modelo = create_model('dt', verbose=False)
-    
-    # Avaliar o modelo
-    try:
-        eval_resultados = evaluate_model(modelo, return_dict=True)
-    except:
-        logging.warning("Não foi possível obter resultados detalhados da avaliação do modelo.")
+    # Treinar modelo de árvore de decisão
+    modelo = DecisionTreeClassifier(random_state=params['session_id'])
+    modelo.fit(X_train, y_train)
     
     # Fazer previsões no conjunto de teste
-    predictions = predict_model(modelo, data=test_set)
+    y_pred = modelo.predict(X_test)
+    y_pred_proba = modelo.predict_proba(X_test)[:, 1]
     
-    # Extrair as previsões de probabilidade e classe
-    y_pred = predictions['prediction_label'] if 'prediction_label' in predictions.columns else predictions['Label']
-    
-    # Para probabilidades, ajustar com base nas colunas disponíveis
-    if 'prediction_score' in predictions.columns:
-        y_pred_proba = predictions['prediction_score']
-    elif 'Score_1' in predictions.columns:
-        y_pred_proba = predictions['Score_1']
-    else:
-        # Se não conseguir obter probabilidades diretamente, fazer novo predict com score
-        try:
-            predictions_proba = predict_model(modelo, data=test_set, raw_score=True)
-            y_pred_proba = predictions_proba['Score_1']
-        except:
-            logging.warning("Não foi possível obter probabilidades do modelo.")
-            # Usar valores binários como aproximação
-            y_pred_proba = y_pred
-    
-    # Calcular métricas adicionais
+    # Calcular métricas
     logloss = log_loss(y_test, y_pred_proba)
     f1 = f1_score(y_test, y_pred)
     
@@ -239,25 +136,41 @@ def treinar_arvore_decisao(train_set: pd.DataFrame, test_set: pd.DataFrame, para
     mlflow.log_metric("f1_score", f1)
     
     # Salvar modelo e registrar como artefato
-    modelo_finalizado = finalize_model(modelo)
-    
-    # Garantir que o diretório existe
     os.makedirs("data/06_models", exist_ok=True)
-    
     modelo_path = "data/06_models/modelo_arvore.pkl"
     with open(modelo_path, 'wb') as f:
-        pickle.dump(modelo_finalizado, f)
+        pickle.dump(modelo, f)
     
     mlflow.log_artifact(modelo_path)
     
-    # Tentar salvar gráficos importantes, com tratamento de erro
+    # Tentar gerar gráficos
     try:
+        from sklearn.metrics import RocCurveDisplay
+        import matplotlib.pyplot as plt
         os.makedirs("data/08_reporting", exist_ok=True)
         
         # Curva ROC
-        roc_plot = plot_model(modelo, plot='auc', save=True)
-        if os.path.exists('AUC.png'):
-            mlflow.log_artifact('AUC.png')
+        roc_plot = RocCurveDisplay.from_estimator(modelo, X_test, y_test)
+        plt.title('Curva ROC - Árvore de Decisão')
+        roc_path = "data/08_reporting/roc_dt.png"
+        plt.savefig(roc_path)
+        plt.close()
+        mlflow.log_artifact(roc_path)
+        
+        # Importância das features
+        importances = modelo.feature_importances_
+        features = X_train.columns
+        indices = np.argsort(importances)[::-1]
+        
+        plt.figure(figsize=(12, 6))
+        plt.title('Importância das Features - Árvore de Decisão')
+        plt.bar(range(X_train.shape[1]), importances[indices], align='center')
+        plt.xticks(range(X_train.shape[1]), features[indices], rotation=90)
+        plt.tight_layout()
+        feat_imp_path = "data/08_reporting/feature_importance.png"
+        plt.savefig(feat_imp_path)
+        plt.close()
+        mlflow.log_artifact(feat_imp_path)
     except Exception as e:
         logging.warning(f"Não foi possível gerar gráficos: {e}")
     
@@ -274,11 +187,10 @@ def treinar_arvore_decisao(train_set: pd.DataFrame, test_set: pd.DataFrame, para
     # Salvar métricas como JSON
     os.makedirs("data/08_reporting", exist_ok=True)
     
-    import json
     with open("data/08_reporting/metricas_arvore.json", 'w') as f:
         json.dump(metricas, f)
     
-    return modelo_finalizado, metricas
+    return modelo, metricas
 
 def selecionar_melhor_modelo(modelo_regressao: object, metricas_regressao: Dict[str, float],
                            modelo_arvore: object, metricas_arvore: Dict[str, float]) -> Tuple[object, Dict[str, float]]:

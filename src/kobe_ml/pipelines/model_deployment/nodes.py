@@ -106,7 +106,7 @@ def aplicar_modelo(modelo: Any, dados: pd.DataFrame) -> pd.DataFrame:
     colunas_x = ["lat", "lng", "minutes_remaining", "period", "playoffs", "shot_distance"]
     X = dados[colunas_x]
     
-    # Fazer previsões
+    # Fazer previsões - agora estamos usando scikit-learn diretamente
     y_pred_proba = modelo.predict_proba(X)[:, 1]
     y_pred = modelo.predict(X)
     
@@ -275,8 +275,7 @@ def calcular_metricas_producao(resultados: pd.DataFrame) -> Dict[str, float]:
         metrics_path = "data/08_reporting/metricas_producao.json"
         os.makedirs(os.path.dirname(metrics_path), exist_ok=True)
         with open(metrics_path, 'w') as f:
-            json.dump(metricas, f, indent=4)
-        mlflow.log_artifact(metrics_path)
+            json.dump(metricas, f)
         
         logging.info(f"Log Loss em produção: {metricas['log_loss_producao']:.4f}")
         logging.info(f"F1 Score em produção: {metricas['f1_score_producao']:.4f}")

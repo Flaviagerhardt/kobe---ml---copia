@@ -5,7 +5,8 @@ model_params:
   feature_selection: True
   pca: False
   pca_components: 0.95
-  ignore_low_variance: True
+  # Comentado para evitar o erro
+  # ignore_low_variance: True
   remove_outliers: False
   polynomial_features: False
   bin_numeric_features: None
