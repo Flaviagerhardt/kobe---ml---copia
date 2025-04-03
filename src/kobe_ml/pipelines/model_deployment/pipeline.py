@@ -47,7 +47,7 @@ def create_pipeline(**kwargs) -> Pipeline:
             ),
             node(
                 func=calcular_metricas_producao,
-                inputs=["resultados_predicao", "dados_prod_preparados"],
+                inputs="resultados_predicao",  # Corrigido: remove dados_prod_preparados
                 outputs="metricas_producao",
                 name="calcular_metricas_producao",
             ),

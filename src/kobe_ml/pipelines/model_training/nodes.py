@@ -22,8 +22,11 @@ def treinar_regressao_logistica(train_set: pd.DataFrame, test_set: pd.DataFrame)
     # Configurar MLflow
     mlflow.start_run(run_name="Treinamento_RegressaoLogistica", nested=True)
 
-    train_set = train_set.rename(columns={"lon": "lng"})
-    test_set = test_set.rename(columns={"lon": "lng"})
+    # Verificar se é necessário renomear colunas
+    if "lon" in train_set.columns and "lng" not in train_set.columns:
+        train_set = train_set.rename(columns={"lon": "lng"})
+    if "lon" in test_set.columns and "lng" not in test_set.columns:
+        test_set = test_set.rename(columns={"lon": "lng"})
     
     # Separar features e target
     X_train = train_set.drop(columns=["shot_made_flag"])
@@ -76,8 +79,11 @@ def treinar_arvore_decisao(train_set: pd.DataFrame, test_set: pd.DataFrame) -> T
     # Configurar MLflow
     mlflow.start_run(run_name="Treinamento_ArvoreDecisao", nested=True)
 
-    train_set = train_set.rename(columns={"lon": "lng"})
-    test_set = test_set.rename(columns={"lon": "lng"})
+    # Verificar se é necessário renomear colunas
+    if "lon" in train_set.columns and "lng" not in train_set.columns:
+        train_set = train_set.rename(columns={"lon": "lng"})
+    if "lon" in test_set.columns and "lng" not in test_set.columns:
+        test_set = test_set.rename(columns={"lon": "lng"})
     
     # Separar features e target
     X_train = train_set.drop(columns=["shot_made_flag"])
@@ -130,21 +136,56 @@ def selecionar_melhor_modelo(modelo_regressao: object, metricas_regressao: Dict[
     Returns:
         Melhor modelo e suas métricas
     """
+    # Configurar MLflow
+    mlflow.start_run(run_name="SelecaoModelo", nested=True)
+    
     # Comparar log loss (menor é melhor)
     logging.info(f"Log Loss - Regressão Logística: {metricas_regressao['log_loss']}")
     logging.info(f"Log Loss - Árvore de Decisão: {metricas_arvore['log_loss']}")
     logging.info(f"F1 Score - Regressão Logística: {metricas_regressao['f1_score']}")
     logging.info(f"F1 Score - Árvore de Decisão: {metricas_arvore['f1_score']}")
     
+    # Registrar métricas dos dois modelos para comparação
+    mlflow.log_metric("log_loss_regressao", metricas_regressao['log_loss'])
+    mlflow.log_metric("f1_score_regressao", metricas_regressao['f1_score'])
+    mlflow.log_metric("log_loss_arvore", metricas_arvore['log_loss'])
+    mlflow.log_metric("f1_score_arvore", metricas_arvore['f1_score'])
+    
     # Decidir com base no F1 Score (maior é melhor)
     if metricas_arvore['f1_score'] > metricas_regressao['f1_score']:
         logging.info("Árvore de decisão selecionada como melhor modelo!")
+        mlflow.log_param("modelo_selecionado", "arvore_decisao")
+        
+        # Registrar o modelo final
+        mlflow.sklearn.log_model(modelo_arvore, "modelo_final")
+        
+        # Finalizar o MLflow run
+        mlflow.end_run()
+        
         return modelo_arvore, metricas_arvore
     else:
         logging.info("Regressão logística selecionada como melhor modelo!")
+        mlflow.log_param("modelo_selecionado", "regressao_logistica")
+        
+        # Registrar o modelo final
+        mlflow.sklearn.log_model(modelo_regressao, "modelo_final")
+        
+        # Finalizar o MLflow run
+        mlflow.end_run()
+        
         return modelo_regressao, metricas_regressao
 
 def aplicar_modelo(modelo_final, dados_prod):
+    """
+    Aplica o modelo selecionado aos dados de produção.
+    
+    Args:
+        modelo_final: Modelo treinado e selecionado
+        dados_prod: DataFrame com dados de produção
+    
+    Returns:
+        DataFrame com previsões
+    """
     import mlflow
     from sklearn.metrics import log_loss, f1_score
 
@@ -153,6 +194,9 @@ def aplicar_modelo(modelo_final, dados_prod):
     # Corrigir nome da coluna, se necessário
     if "lon" in dados_prod.columns and "lng" not in dados_prod.columns:
         dados_prod = dados_prod.rename(columns={"lon": "lng"})
+
+    # Remover linhas com dados faltantes
+    dados_prod = dados_prod.dropna()
 
     # Colunas usadas no modelo
     colunas_usadas = ["lat", "lng", "minutes_remaining", "period", "playoffs", "shot_distance"]
@@ -190,11 +234,19 @@ def aplicar_modelo(modelo_final, dados_prod):
             # Logar métricas no MLflow
             mlflow.log_metric("log_loss_producao", logloss)
             mlflow.log_metric("f1_score_producao", f1)
+            
+            logging.info(f"Log Loss em produção: {logloss:.4f}")
+            logging.info(f"F1 Score em produção: {f1:.4f}")
         else:
-            print("Sem registros válidos para avaliação (todos com NaN em shot_made_flag).")
+            logging.info("Sem registros válidos para avaliação (todos com NaN em shot_made_flag).")
     else:
-        print("Coluna 'shot_made_flag' não encontrada. Sem métricas para registrar.")
+        logging.info("Coluna 'shot_made_flag' não encontrada. Sem métricas para registrar.")
 
+    # Salvar previsões como artefato
+    temp_file = "data/07_model_output/predicoes_temp.parquet"
+    resultado.to_parquet(temp_file)
+    mlflow.log_artifact(temp_file)
+    
     mlflow.end_run()
 
     return resultado

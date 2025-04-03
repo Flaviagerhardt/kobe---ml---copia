@@ -2,8 +2,7 @@ from kedro.pipeline import Pipeline, node, pipeline
 from .nodes import (
     treinar_regressao_logistica,
     treinar_arvore_decisao,
-    selecionar_melhor_modelo,
-    aplicar_modelo
+    selecionar_melhor_modelo
 )
 
 def create_pipeline(**kwargs) -> Pipeline:
@@ -25,11 +24,5 @@ def create_pipeline(**kwargs) -> Pipeline:
             inputs=["modelo_regressao", "metricas_regressao", "modelo_arvore", "metricas_arvore"],
             outputs=["modelo_final", "metricas_final"],
             name="selecionar_melhor_modelo"
-        ),
-        node(
-            func=aplicar_modelo,
-            inputs=["modelo_final", "kobe_prod"],
-            outputs="predicoes_treino",  # Nome alterado
-            name="aplicar_modelo"
         )
     ])

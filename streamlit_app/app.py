@@ -8,6 +8,8 @@ import os
 import plotly.express as px
 import plotly.graph_objects as go
 from mlflow.tracking import MlflowClient
+import sys
+from pathlib import Path
 
 # Configurar página
 st.set_page_config(
@@ -15,6 +17,28 @@ st.set_page_config(
     page_icon="🏀",
     layout="wide"
 )
+
+# Ajustar caminhos - verificar se estamos executando do diretório raiz ou de streamlit_app
+CURRENT_DIR = Path(os.getcwd())
+ROOT_DIR = CURRENT_DIR
+if CURRENT_DIR.name == "streamlit_app":
+    ROOT_DIR = CURRENT_DIR.parent
+
+# Configurar caminhos relativos
+DATA_DIR = ROOT_DIR / "data"
+MLFLOW_DIR = ROOT_DIR / "mlruns"
+
+# Exibir informações de debug se necessário
+show_debug = st.sidebar.checkbox("Mostrar Informações de Debug", False)
+if show_debug:
+    st.sidebar.write(f"Diretório Atual: {CURRENT_DIR}")
+    st.sidebar.write(f"Diretório Raiz: {ROOT_DIR}")
+    st.sidebar.write(f"Diretório de Dados: {DATA_DIR}")
+    st.sidebar.write(f"Diretório MLflow: {MLFLOW_DIR}")
+    st.sidebar.write(f"Arquivos em diretório data (se existir):")
+    if DATA_DIR.exists():
+        for path in DATA_DIR.glob("**/*.parquet"):
+            st.sidebar.write(f"- {path.relative_to(DATA_DIR)}")
 
 # Título da aplicação
 st.title("📊 Dashboard de Monitoramento do Modelo")
@@ -25,33 +49,47 @@ st.sidebar.title("Navegação")
 page = st.sidebar.radio("Ir para", ["Visão Geral", "Desempenho do Modelo", "Monitoramento de Produção", "Distribuição de Dados"])
 
 # Configurar o cliente MLflow
-mlflow_tracking_uri = "mlruns"
+mlflow_tracking_uri = str(MLFLOW_DIR)
 os.environ["MLFLOW_TRACKING_URI"] = mlflow_tracking_uri
-client = MlflowClient(tracking_uri=mlflow_tracking_uri)
+
+try:
+    client = MlflowClient(tracking_uri=mlflow_tracking_uri)
+except Exception as e:
+    st.warning(f"Erro ao configurar MLflow: {e}")
+    client = None
 
 # Função para carregar dados
 @st.cache_data
 def carregar_dados():
-    try:
-        # Carregar dados de treinamento, teste e produção
-        train = pd.read_parquet("data/05_model_input/base_train.parquet")
-        test = pd.read_parquet("data/05_model_input/base_test.parquet")
-        prod = pd.read_parquet("data/01_raw/dataset_kobe_prod.parquet")
-        
-        # Carregar previsões
+    resultados = {}
+    erros = {}
+    
+    # Lista de arquivos para tentar carregar
+    arquivos = {
+        "train": DATA_DIR / "05_model_input" / "base_train.parquet",
+        "test": DATA_DIR / "05_model_input" / "base_test.parquet",
+        "prod": DATA_DIR / "01_raw" / "dataset_kobe_prod.parquet",
+        "predicoes": DATA_DIR / "07_model_output" / "predicoes.parquet"
+    }
+    
+    # Tentar carregar cada arquivo
+    for nome, caminho in arquivos.items():
         try:
-            predicoes = pd.read_parquet("data/07_model_output/predicoes.parquet")
-        except:
-            predicoes = None
-            
-        return train, test, prod, predicoes
-    except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
-        return None, None, None, None
+            if caminho.exists():
+                resultados[nome] = pd.read_parquet(caminho)
+            else:
+                erros[nome] = f"Arquivo não encontrado: {caminho}"
+        except Exception as e:
+            erros[nome] = str(e)
+    
+    return resultados, erros
 
 # Função para obter métricas do MLflow
 @st.cache_data
 def obter_metricas_mlflow():
+    if client is None:
+        return []
+        
     try:
         # Obter experimentos
         experimentos = client.search_experiments()
@@ -80,9 +118,35 @@ def obter_metricas_mlflow():
         st.error(f"Erro ao obter métricas do MLflow: {e}")
         return []
 
+# Verificar se os diretórios de dados existem
+if not DATA_DIR.exists():
+    st.error(f"Diretório de dados não encontrado: {DATA_DIR}")
+    st.info("Execute os pipelines Kedro para gerar os dados antes de usar o dashboard.")
+    st.stop()
+
 # Carregar dados
-train, test, prod, predicoes = carregar_dados()
+dados, erros_carregamento = carregar_dados()
 metricas_mlflow = obter_metricas_mlflow()
+
+# Exibir erros de carregamento se houver
+if erros_carregamento and show_debug:
+    st.sidebar.subheader("Erros de Carregamento:")
+    for nome, erro in erros_carregamento.items():
+        st.sidebar.error(f"Erro ao carregar {nome}: {erro}")
+
+# Verificar se temos os dados mínimos necessários
+dados_minimos = "train" in dados and "test" in dados
+if not dados_minimos:
+    st.warning("Dados de treinamento e/ou teste não encontrados.")
+    st.info("Execute os pipelines de processamento de dados e treinamento antes de usar o dashboard.")
+    st.info("Use o comando: `./run.sh all` ou `./run.sh preprocess` seguido de `./run.sh train`")
+    st.stop()
+
+# Extrair dados para facilitar o acesso
+train = dados.get("train")
+test = dados.get("test")
+prod = dados.get("prod")
+predicoes = dados.get("predicoes")
 
 # Página de Visão Geral
 if page == "Visão Geral":
@@ -91,44 +155,41 @@ if page == "Visão Geral":
     # Informações do dataset
     col1, col2, col3 = st.columns(3)
     
-    if train is not None and test is not None:
-        col1.metric("Tamanho do Conjunto de Treinamento", f"{len(train)}")
-        col2.metric("Tamanho do Conjunto de Teste", f"{len(test)}")
-        col3.metric("Tamanho do Conjunto de Produção", f"{len(prod) if prod is not None else 'N/A'}")
-        
-        # Distribuição das classes
-        st.subheader("Distribuição da Variável Alvo (shot_made_flag)")
-        
-        fig = plt.figure(figsize=(10, 6))
-        ax = fig.add_subplot(111)
-        train_counts = train["shot_made_flag"].value_counts(normalize=True) * 100
-        test_counts = test["shot_made_flag"].value_counts(normalize=True) * 100
-        
-        x = np.arange(2)
-        width = 0.35
-        
-        ax.bar(x - width/2, [train_counts.get(0, 0), train_counts.get(1, 0)], width, label='Treino')
-        ax.bar(x + width/2, [test_counts.get(0, 0), test_counts.get(1, 0)], width, label='Teste')
-        
-        ax.set_xticks(x)
-        ax.set_xticklabels(['Errou (0)', 'Acertou (1)'])
-        ax.set_ylabel('Porcentagem (%)')
-        ax.set_title('Distribuição da Variável Alvo nos Conjuntos de Dados')
-        ax.legend()
-        
-        st.pyplot(fig)
-        
-        # Mapa de calor de correlação
-        st.subheader("Correlação entre Variáveis")
-        
-        fig = plt.figure(figsize=(10, 8))
-        corr = train.corr()
-        sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f")
-        plt.title("Mapa de Calor de Correlação")
-        
-        st.pyplot(fig)
-    else:
-        st.warning("Não foi possível carregar os dados de treinamento e teste.")
+    col1.metric("Tamanho do Conjunto de Treinamento", f"{len(train)}")
+    col2.metric("Tamanho do Conjunto de Teste", f"{len(test)}")
+    col3.metric("Tamanho do Conjunto de Produção", f"{len(prod) if prod is not None else 'N/A'}")
+    
+    # Distribuição das classes
+    st.subheader("Distribuição da Variável Alvo (shot_made_flag)")
+    
+    fig = plt.figure(figsize=(10, 6))
+    ax = fig.add_subplot(111)
+    train_counts = train["shot_made_flag"].value_counts(normalize=True) * 100
+    test_counts = test["shot_made_flag"].value_counts(normalize=True) * 100
+    
+    x = np.arange(2)
+    width = 0.35
+    
+    ax.bar(x - width/2, [train_counts.get(0, 0), train_counts.get(1, 0)], width, label='Treino')
+    ax.bar(x + width/2, [test_counts.get(0, 0), test_counts.get(1, 0)], width, label='Teste')
+    
+    ax.set_xticks(x)
+    ax.set_xticklabels(['Errou (0)', 'Acertou (1)'])
+    ax.set_ylabel('Porcentagem (%)')
+    ax.set_title('Distribuição da Variável Alvo nos Conjuntos de Dados')
+    ax.legend()
+    
+    st.pyplot(fig)
+    
+    # Mapa de calor de correlação
+    st.subheader("Correlação entre Variáveis")
+    
+    fig = plt.figure(figsize=(10, 8))
+    corr = train.corr()
+    sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f")
+    plt.title("Mapa de Calor de Correlação")
+    
+    st.pyplot(fig)
 
 # Página de Desempenho do Modelo
 elif page == "Desempenho do Modelo":
@@ -180,7 +241,7 @@ elif page == "Desempenho do Modelo":
         else:
             st.warning("Não foram encontradas rodadas de treinamento nos logs do MLflow.")
     else:
-        st.warning("Não foi possível obter métricas do MLflow.")
+        st.warning("Logs do MLflow não encontrados. Execute o pipeline de treinamento para gerar métricas.")
 
 # Página de Monitoramento de Produção
 elif page == "Monitoramento de Produção":
@@ -191,41 +252,53 @@ elif page == "Monitoramento de Produção":
         st.subheader("Distribuição das Previsões")
         
         # Histograma de probabilidades preditas
-        fig = px.histogram(predicoes, x="shot_made_flag_prob", 
-                          title="Distribuição das Probabilidades Preditas",
-                          labels={"shot_made_flag_prob": "Probabilidade Predita"})
-        st.plotly_chart(fig)
+        if "shot_made_flag_prob" in predicoes.columns:
+            prob_col = "shot_made_flag_prob"
+        elif "probabilidade_acerto" in predicoes.columns:
+            prob_col = "probabilidade_acerto"
+        else:
+            st.error("Coluna de probabilidades não encontrada. Verifique o formato dos dados de previsão.")
+            prob_col = None
+            
+        if prob_col:
+            fig = px.histogram(predicoes, x=prob_col, 
+                            title="Distribuição das Probabilidades Preditas",
+                            labels={prob_col: "Probabilidade Predita"})
+            st.plotly_chart(fig)
         
         # Se tiver a variável alvo real nos dados de produção
-        if "shot_made_flag" in predicoes.columns:
+        pred_col = "shot_made_flag_pred" if "shot_made_flag_pred" in predicoes.columns else "previsao"
+        
+        if "shot_made_flag" in predicoes.columns and pred_col in predicoes.columns:
             st.subheader("Comparação: Valores Reais vs. Preditos")
             
             # Matriz de confusão
             conf_matrix = pd.crosstab(predicoes["shot_made_flag"], 
-                                     predicoes["shot_made_flag_pred"], 
-                                     rownames=['Real'], 
-                                     colnames=['Predito'])
+                                    predicoes[pred_col], 
+                                    rownames=['Real'], 
+                                    colnames=['Predito'])
             
             fig = px.imshow(conf_matrix, 
-                           text_auto=True, 
-                           color_continuous_scale='Blues',
-                           title="Matriz de Confusão")
+                        text_auto=True, 
+                        color_continuous_scale='Blues',
+                        title="Matriz de Confusão")
             st.plotly_chart(fig)
             
             # Curva ROC
             from sklearn.metrics import roc_curve, auc
-            fpr, tpr, _ = roc_curve(predicoes["shot_made_flag"], predicoes["shot_made_flag_prob"])
-            roc_auc = auc(fpr, tpr)
-            
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=fpr, y=tpr, name=f'ROC curve (AUC = {roc_auc:.3f})'))
-            fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Random', line=dict(dash='dash')))
-            fig.update_layout(
-                title='Curva ROC',
-                xaxis_title='Taxa de Falsos Positivos',
-                yaxis_title='Taxa de Verdadeiros Positivos'
-            )
-            st.plotly_chart(fig)
+            if prob_col:
+                fpr, tpr, _ = roc_curve(predicoes["shot_made_flag"], predicoes[prob_col])
+                roc_auc = auc(fpr, tpr)
+                
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=fpr, y=tpr, name=f'ROC curve (AUC = {roc_auc:.3f})'))
+                fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode='lines', name='Random', line=dict(dash='dash')))
+                fig.update_layout(
+                    title='Curva ROC',
+                    xaxis_title='Taxa de Falsos Positivos',
+                    yaxis_title='Taxa de Verdadeiros Positivos'
+                )
+                st.plotly_chart(fig)
             
             # Métricas de desempenho em produção
             col1, col2 = st.columns(2)
@@ -245,7 +318,7 @@ elif page == "Monitoramento de Produção":
         else:
             st.info("Não há valores reais disponíveis para comparação no conjunto de produção.")
     else:
-        st.warning("Os dados de previsão não estão disponíveis.")
+        st.warning("Os dados de previsão não estão disponíveis. Execute o pipeline de deployment para gerar previsões.")
 
 # Página de Distribuição de Dados
 elif page == "Distribuição de Dados":
