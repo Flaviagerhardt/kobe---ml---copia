@@ -442,3 +442,13 @@ O modelo de árvore de decisão demonstrou desempenho robusto e consistente, alc
 [![Relatório PDF](imagem/analise_drift_dash.png)](imagem/Dashboard de Monitoramento - Kobe Bryant Shots4.pdf)
 
 [![Relatório PDF](imagem/retreinamento_dash.png)](imagem/Dashboard de Monitoramento - Kobe Bryant Shots5.pdf)
+
+[![Relatório PDF](imagem/visão_geral_dash.png)](imagem/Dashboard%20de%20Monitoramento%20-%20Kobe%20Bryant%20Shots.pdf)
+
+[![Relatório PDF](imagem/desempenho_modelo_dash.png)](imagem/Dashboard%20de%20Monitoramento%20-%20Kobe%20Bryant%20Shots2.pdf)
+
+[![Relatório PDF](imagem/monitoramento_producao_dash.png)](imagem/Dashboard%20de%20Monitoramento%20-%20Kobe%20Bryant%20Shots3.pdf)
+
+[![Relatório PDF](imagem/analise_drift_dash.png)](imagem/Dashboard%20de%20Monitoramento%20-%20Kobe%20Bryant%20Shots4.pdf)
+
+[![Relatório PDF](imagem/retreinamento_dash.png)](imagem/Dashboard%20de%20Monitoramento%20-%20Kobe%20Bryant%20Shots5.pdf)
