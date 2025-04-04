@@ -32,7 +32,7 @@ MLFLOW_DIR = ROOT_DIR / "mlruns"
 
 # Título da aplicação
 st.title("📊 Dashboard de Monitoramento do Modelo")
-st.markdown("### Previsão de Arremessos de Kobe Bryant (Scikit-learn + Kedro + MLflow)")
+st.markdown("### Previsão de Arremessos de Kobe Bryant")
 
 # Sidebar para navegação
 st.sidebar.title("Navegação")
@@ -233,8 +233,7 @@ if page == "Visão Geral":
     st.markdown("""
     ### Sobre o projeto
     Este dashboard monitora um modelo de machine learning que prevê se os arremessos de Kobe Bryant resultaram em cestas ou não.
-    O pipeline foi construído usando Kedro para orquestração, scikit-learn para treinamento de modelos, e MLflow para 
-    rastreamento de experimentos.
+    O pipeline foi construído usando Kedro para orquestração  e MLflow para rastreamento de experimentos.
     """)
     
     # Informações do dataset
@@ -293,7 +292,7 @@ elif page == "Desempenho do Modelo":
     st.header("Desempenho dos Modelos")
     
     st.markdown("""
-    ### Comparação de Modelos (scikit-learn)
+    ### Comparação de Modelos
     Nesta seção, comparamos o desempenho dos dois modelos treinados:
     - Regressão Logística
     - Árvore de Decisão
@@ -815,4 +814,4 @@ elif page == "Retreinamento":
 # Informações adicionais no rodapé
 st.markdown("---")
 st.markdown("**Dashboard de Monitoramento do Projeto de ML - Arremessos do Kobe Bryant**")
-st.markdown("Desenvolvido com scikit-learn, Kedro e MLflow - Projeto de Disciplina de Engenharia de Machine Learning")
+st.markdown("Projeto de Disciplina de Engenharia de Machine Learning - Infnet")

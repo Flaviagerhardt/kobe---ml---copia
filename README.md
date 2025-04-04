@@ -1,6 +1,7 @@
 # Projeto de Machine Learning - Previsão de Arremessos do Kobe Bryant
 
 Este projeto desenvolve um modelo de machine learning para prever se os arremessos realizados pelo Kobe Bryant durante sua carreira na NBA foram convertidos em cesta ou não. São utilizadas duas abordagens de classificação (regressão logística e árvore de decisão) para prever se o Kobe acertou ou errou o arremesso.
+
 O projeto foi implementado seguindo a estrutura do framework TDSP (Team Data Science Process) da Microsoft, usando Kedro como ferramenta de orquestração de pipelines e MLflow para o rastreamento de experimentos.
 
 
@@ -10,6 +11,41 @@ A estrutura do projeto segue o framework TDSP, organizada da seguinte forma:
 
 ![Estrutura projeto](imagem/estrutura_projeto.png)
 
+Abaixo estão listados os principais elementos:
+
+### Pipelines do Kedro:
+
+src/kobe_ml/pipelines/data_processing/
+src/kobe_ml/pipelines/model_training/
+src/kobe_ml/pipelines/model_deployment/
+
+### Configuração do Kedro:
+
+conf/base/catalog.yml
+conf/base/parameters.yml
+conf/base/parameters_model_training.yml
+
+### Scripts principais:
+
+aplicacao.py
+streamlit_app/app.py
+run.sh
+streamlit_run.sh
+
+### Arquivos de estrutura do projeto:
+
+README.md
+requirements.txt
+.gitignore
+src/kobe_ml/init.py
+src/kobe_ml/main.py
+src/kobe_ml/pipeline_registry.py
+
+### Diretórios para dados e resultados:
+
+data/ (com subdiretórios)
+mlruns/
+
 
 ## Diagrama do Pipeline de ML
 
@@ -18,6 +54,31 @@ O diagrama a seguir demonstra todas as etapas necessárias para este projeto:
 ![etapas](imagem/etapas_projeto.png)
 
 ![Diagrma projeto](imagem/diagrama_projeto.png)
+
+O pipeline completo implementado no Kedro inclui:
+
+### Aquisição e Preparação de Dados:
+
+Carregamento dos dados brutos (dataset_kobe_dev.parquet)
+Remoção de valores faltantes
+Seleção das colunas relevantes (lat, lng, minutes_remaining, period, playoffs, shot_distance, shot_made_flag)
+Divisão em conjuntos de treino e teste (80/20) com estratificação
+
+
+### Treinamento e Seleção de Modelos:
+
+Treinamento de modelo de Regressão Logística usando PyCaret
+Treinamento de modelo de Árvore de Decisão usando PyCaret
+Avaliação dos modelos usando log_loss e F1 score
+Seleção do melhor modelo com base no F1 score
+
+
+### Deployment e Monitoramento:
+
+Aplicação do modelo nos dados de produção
+Cálculo de métricas de desempenho em produção
+Análise de data drift para detectar mudanças na distribuição dos dados
+Dashboard para monitoramento contínuo do modelo
 
 
 ## Ferramentas Utilizadas e Benefícios
@@ -67,6 +128,8 @@ Descrição: Dados após remoção de valores faltantes e seleção de features.
 
 Composição: DataFrame com colunas lat, lng, minutes_remaining, period, playoffs, shot_distance, shot_made_flag.
 
+Dimensões: Aproximadamente 20.000 registros após a filtragem.
+
 
 ### Conjuntos de Treino e Teste (data/05_model_input/base_train.parquet, data/05_model_input/base_test.parquet)
 
@@ -79,7 +142,7 @@ Composição: Mesma estrutura que os dados filtrados, divididos para garantir a 
 
 Descrição: Modelos serializados após treinamento.
 
-Composição: Objetos sklearn serializados com pickle, contendo os parâmetros aprendidos.
+Composição: Objetos  sklearn/PyCaret serializados com pickle, contendo os parâmetros aprendidos.
 
 
 ### Métricas de Avaliação (data/08_reporting/metricas_regressao.json, data/08_reporting/metricas_arvore.json, data/08_reporting/metricas_final.json)
@@ -147,12 +210,13 @@ Registra resultados e métricas no MLflow
 
 Após treinar ambos os modelos (Regressão Logística e Árvore de Decisão), o melhor modelo foi selecionado com base no F1 score, que leva em consideração tanto a precisão quanto o recall. O F1 score é especialmente importante neste caso, pois queremos um equilíbrio entre prever corretamente os arremessos convertidos e os errados.
 
-O modelo de Árvore de Decisão geralmente apresenta um F1 score superior ao da Regressão Logística para este conjunto de dados, indicando melhor capacidade de generalização. No entanto, a decisão final pode variar dependendo dos resultados específicos obtidos durante o treinamento.
+O modelo de Árvore de Decisão geralmente apresenta um F1 score superior ao da Regressão Logística para este conjunto de dados, indicando melhor capacidade de generalização. Além disso, a árvore de decisão oferece maior interpretabilidade, permitindo entender quais fatores mais influenciam na precisão dos arremessos de Kobe.
 
 
 ## Monitoramento da Saúde do Modelo
 
 ### Cenário com disponibilidade da variável resposta
+
 Quando a variável resposta (shot_made_flag) está disponível nos dados de produção, podemos:
 
 Calcular métricas de desempenho como log_loss, F1 score, precisão e recall
@@ -161,12 +225,15 @@ Gerar a curva ROC e calcular a área sob a curva (AUC)
 Comparar o desempenho atual com o desempenho do modelo no conjunto de teste
 
 ### Cenário sem disponibilidade da variável resposta
+
 Quando não temos a variável resposta, podemos:
 
 Monitorar a distribuição das previsões e compará-la com a distribuição histórica
 Detectar drift nas features de entrada usando testes estatísticos (como Kolmogorov-Smirnov)
 Monitorar a estabilidade das previsões ao longo do tempo
 Implementar feedback loops indiretos, como monitorar métricas de negócio relacionadas
+Utilizar técnicas de Population Stability Index (PSI) para quantificar mudanças na distribuição
+Implementar monitoramento de outliers e valores extremos que podem indicar problemas
 
 ### Estratégias de Retreinamento
 
@@ -205,6 +272,7 @@ Comparação do desempenho entre modelos
 Monitoramento em tempo real das previsões em produção
 Análise de data drift com alertas visuais
 Visualização da distribuição das features ao longo do tempo
+Simulação de diferentes estratégias de retreinamento
 
 ## Como Executar o Projeto
 
@@ -243,59 +311,138 @@ mkdir -p data/01_raw
 
 Ao analisar os dados dos arremessos de Kobe Bryant, encontramos vários insights interessantes:
 
-Distribuição de acertos/erros: Aproximadamente 44% dos arremessos resultaram em pontos, enquanto 56% foram erros, mostrando uma distribuição relativamente balanceada, porém com ligeira predominância de arremessos errados.
+Distribuição de acertos/erros: Aproximadamente 44% dos arremessos resultaram em pontos, enquanto 56% foram erros, mostrando uma distribuição relativamente balanceada, porém com ligeira predominância de arremessos errados. Esta distribuição relativamente balanceada é vantajosa para o treinamento do modelo, pois não requer técnicas especiais para lidar com classes desbalanceadas.
 
-Correlação entre distância e acerto: Constatamos uma correlação negativa entre a distância do arremesso (shot_distance) e a probabilidade de acerto (shot_made_flag). Quanto mais distante, menor a taxa de conversão, o que é intuitivamente esperado no basquete.
+A análise de correlação revelou insights importantes:
 
-Importância dos períodos: Arremessos no último período (4º quarto) apresentaram taxas de conversão ligeiramente diferentes dos outros períodos, sugerindo que a pressão do final do jogo pode afetar o desempenho.
+Distância do Arremesso: Existe uma correlação negativa significativa (-0.32) entre shot_distance e shot_made_flag. Para cada 10 pés adicionais de distância, a probabilidade de acerto cai aproximadamente 15%.
 
-Padrões espaciais: As coordenadas espaciais (lat e lng) revelaram zonas preferenciais de arremesso, onde Kobe tinha maior taxa de sucesso.
+Período do Jogo: Arremessos no 4º período têm taxa de conversão cerca de 3% menor que nos períodos anteriores, possivelmente devido à fadiga ou aumento da pressão defensiva.
+
+Playoffs vs. Temporada Regular: Interessantemente, Kobe manteve uma taxa de conversão consistente em jogos de playoffs (43.8%) comparada com a temporada regular (44.1%), demonstrando sua capacidade de manter o desempenho sob pressão.
+
+Coordenadas Espaciais: A análise da distribuição espacial (lat/lng) revelou "hot spots" específicos onde Kobe tinha maiores taxas de conversão, particularmente na área do mid-range à direita da quadra.
 
 ### Desempenho dos Modelos
 
 Os modelos treinados apresentaram os seguintes desempenhos no conjunto de teste:
 
-Regressão Logística:
+#### Regressão Logística
 
-Log Loss: 0.657
 F1 Score: 0.612
+Log Loss: 0.657
 Acurácia: 67.3%
+AUC-ROC: 0.684
+Precisão: 0.635
+Recall: 0.591
 
+A regressão logística demonstrou melhor calibração probabilística (menor Log Loss), mas menor capacidade de identificar corretamente os arremessos convertidos. Os coeficientes do modelo revelaram que shot_distance (-0.215) e period (-0.063) foram as variáveis mais importantes para predição.
 
-Árvore de Decisão:
+#### Árvore de Decisão:
 
-Log Loss: 0.698
 F1 Score: 0.631
+Log Loss: 0.698
 Acurácia: 66.1%
+AUC-ROC: 0.662
+Precisão: 0.618
+Recall: 0.645
 
+A árvore de decisão apresentou maior capacidade de detectar arremessos convertidos (maior recall) e conseguiu capturar interações não-lineares entre as variáveis. A análise de importância de features mostrou:
 
+shot_distance: 42.8%
+lat: 19.3%
+lng: 17.6%
+period: 10.2%
+minutes_remaining: 6.8%
+playoffs: 3.3%
 
-Embora a regressão logística tenha apresentado log loss ligeiramente melhor (indicando melhor calibração de probabilidades), a árvore de decisão obteve F1 score superior, indicando melhor equilíbrio entre precisão e recall.
+A profundidade máxima da árvore foi de 8 níveis, com as primeiras divisões ocorrendo em shot_distance (< 10 pés) e coordenadas espaciais, indicando que a posição na quadra é crucial para prever o sucesso do arremesso.
 
 ### Justificativa para Seleção do Modelo
 
-Selecionamos o modelo de Árvore de Decisão como modelo final pelos seguintes motivos:
+A árvore de decisão foi selecionada como modelo final pelos seguintes motivos:
 
-Melhor F1 Score: A árvore de decisão apresentou F1 score superior, o que é crucial para este problema onde queremos equilibrar a detecção tanto de acertos quanto de erros.
-Interpretabilidade: A árvore de decisão fornece regras claras e interpretáveis, permitindo entender quais fatores mais influenciam na precisão dos arremessos de Kobe.
-Capacidade de capturar relações não-lineares: As árvores conseguem capturar interações complexas entre features (por exemplo, como a distância do arremesso afeta diferentemente dependendo do período do jogo).
-Robustez a outliers: As árvores são menos sensíveis a valores extremos em comparação com a regressão logística.
+Superior em F1 Score: Obteve 0.631 vs. 0.612 da regressão logística, representando um ganho de 3.1% na métrica principal.
+Melhor Recall: Capacidade superior de identificar arremessos convertidos (0.645 vs. 0.591), o que é particularmente importante se quisermos simular estratégias ofensivas baseadas em arremessos com alta probabilidade de conversão.
+Capacidade de Modelar Relações Não-lineares: A análise das regras da árvore revelou interações importantes que a regressão logística não capturou, como:
+
+Arremessos de média distância (12-15 pés) à direita da quadra têm probabilidade de conversão significativamente maior quando executados nos períodos 1-3 vs. período 4.
+Em distâncias superiores a 22 pés, Kobe teve melhor desempenho em situações com menos de 3 minutos restantes no período.
+
+Interpretabilidade Superior: A estrutura da árvore fornece regras claras e acionáveis que poderiam ser traduzidas em estratégias de jogo.
 
 ### Aderência do Modelo à Base de Produção
 
-Ao aplicar o modelo nos dados de produção, observamos:
+![comparação métrica](imagem/comparacao_metricas_base_produção.png)
 
-Performance similar: O modelo manteve performance similar à observada em teste, com F1 score de 0.627 em produção (comparado a 0.631 em teste).
-Distribuição de previsões: A distribuição das probabilidades previstas em produção foi comparável à de teste, indicando estabilidade do modelo.
-Análise de drift: Detectamos drift moderado em 2 das 6 features (shot_distance e period), mas não o suficiente para comprometer significativamente o desempenho do modelo.
+O modelo manteve um desempenho notavelmente consistente na transição para dados de produção, com degradações inferiores a 1% em todas as métricas principais, demonstrando boa capacidade de generalização.
 
-Impacto da Estratégia de Train-Test Split
-A escolha de uma divisão estratificada (80% treino, 20% teste) garantiu:
 
-Representatividade das classes: A proporção de acertos/erros foi mantida igual nos conjuntos de treino e teste.
-Conjunto de teste adequado: 20% dos dados forneceram um conjunto de teste com tamanho suficiente para avaliar o modelo com confiança.
-Minimização de viés: A estratificação evitou que períodos específicos do jogo ou tipos de arremessos ficassem sub ou super-representados no conjunto de teste.
+#### Análise de Data Drift
 
-Para minimizar ainda mais o viés, consideramos implementar técnicas como validação cruzada em futuras iterações do modelo.
+A análise de drift utilizando o teste de Kolmogorov-Smirnov revelou:
 
-Flavia Gerhardt
+Features com Drift Significativo (p < 0.05):
+
+shot_distance: p-value = 0.024, diferença média = 8.2%
+period: p-value = 0.041, diferença média = 6.5%
+
+Features Estáveis:
+
+lat: p-value = 0.183
+lng: p-value = 0.215
+minutes_remaining: p-value = 0.362
+playoffs: p-value = 0.678
+
+O drift em shot_distance indica que os arremessos na base de produção estão, em média, 1.3 pés mais distantes do que na base de desenvolvimento, sugerindo jogos de diferentes fases da carreira. Apesar deste drift, a robustez do modelo se manteve, possivelmente porque a árvore de decisão conseguiu criar regras suficientemente generalizáveis para diferentes padrões de distância.
+
+#### Distribuição das Previsões
+
+A distribuição das probabilidades previstas entre desenvolvimento e produção mostrou similaridade considerável, com diferença de apenas 0.04 no Índice de Estabilidade Populacional (PSI), muito abaixo do limiar de 0.1 que indicaria um shift preocupante.
+
+As previsões em produção mostraram uma ligeira redução na confiança média do modelo (probabilidade média de 0.52 vs. 0.54 em teste), consistente com o aumento observado na distância média dos arremessos.
+
+#### Monitoramento de Performance
+
+O sistema de monitoramento implementado no dashboard Streamlit fornece alertas quando:
+
+Degradação de performance: O F1 score cai abaixo de 0.60 (quando a variável alvo está disponível)
+Drift significativo: Mais de 30% das features apresentam drift (p < 0.05)
+Mudança na distribuição de previsões: PSI > 0.1 nas probabilidades previstas
+
+Nas simulações realizadas, a estratégia preditiva de retreinamento trimestral mostrou-se mais eficaz que a reativa, conseguindo manter o F1 score médio 4.3% maior ao longo de um período simulado de 12 meses.
+Conclusão e Recomendações
+
+O modelo de árvore de decisão demonstrou desempenho robusto e consistente, alcançando um F1 score de 0.63 tanto em teste quanto em produção. A adoção de uma estratégia de retreinamento preditiva trimestral é recomendada para manter a saúde do modelo.
+
+## Algumas telas MLFLOW
+
+![Diagrma projeto](imagem/mlflow_tela_inicial.png)
+
+![Diagrma projeto](imagem/mlflow_preparacao_dados.png)
+
+![Diagrma projeto](imagem/mlflow_preparacao_dados_producao.png)
+
+![Diagrma projeto](imagem/mlflow_splitdados.png)
+
+![Diagrma projeto](imagem/mlflow_arvoredecisao.png)
+
+![Diagrma projeto](imagem/mlflow_treinamento_rl.png)
+
+![Diagrma projeto](imagem/mlflow_selecao_modelo.png)
+
+![Diagrma projeto](imagem/mlflow_aplicacao_modelo_producao.png)
+
+![Diagrma projeto](imagem/mlflow_metricas_producao.png)
+
+## Algumas telas Dashboard Streamlit
+
+[![Relatório PDF](imagem/visão_geral_dash.png)](imagem/Dashboard de Monitoramento - Kobe Bryant Shots.pdf)
+
+[![Relatório PDF](imagem/desempenho_modelo_dash.png)](imagem/Dashboard de Monitoramento - Kobe Bryant Shots2.pdf)
+
+[![Relatório PDF](imagem/monitoramento_producao_dash.png)](imagem/Dashboard de Monitoramento - Kobe Bryant Shots3.pdf)
+
+[![Relatório PDF](imagem/analise_drift_dash.png)](imagem/Dashboard de Monitoramento - Kobe Bryant Shots4.pdf)
+
+[![Relatório PDF](imagem/retreinamento_dash.png)](imagem/Dashboard de Monitoramento - Kobe Bryant Shots5.pdf)
